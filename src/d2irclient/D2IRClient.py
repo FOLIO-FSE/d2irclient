@@ -4,7 +4,7 @@ Client for interacting with the Direct to INN-Reach (D2IR) API for resource shar
 
 import logging
 import os
-from typing import cast
+from typing import Any, cast
 
 import httpx
 
@@ -22,7 +22,7 @@ except (TypeError, ValueError):
 
 # Sentinel value for detecting unset timeout parameter
 class _TimeoutUnsetType:
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "_TIMEOUT_UNSET"
 
 
@@ -30,7 +30,7 @@ _TIMEOUT_UNSET = _TimeoutUnsetType()
 
 
 # Timeout configuration with granular control
-def _get_timeout_config() -> dict:
+def _get_timeout_config() -> dict[str, float | None]:
     """Get timeout configuration from environment variables or defaults.
 
     Returns:
@@ -59,14 +59,29 @@ TIMEOUT_CONFIG = _get_timeout_config()
 class D2IRClient:
     def __init__(
         self,
-        d2ir_auth_url: str,
-        d2ir_root_url: str,
-        d2ir_key: str,
-        d2ir_secret: str,
+        auth_url: str,
+        root_url: str,
+        auth_key: str,
+        auth_secret: str,
         from_server_code: str,
         to_server_code: str,
-        timeout: httpx.Timeout | dict[str, float] | None = None,
+        timeout: (
+            httpx.Timeout | dict[str, float] | float | None | _TimeoutUnsetType
+        ) = _TIMEOUT_UNSET,
     ) -> None:
+        """Initialize D2IR client.
+
+        Args:
+            d2ir_auth_url: URL for D2IR authentication endpoint
+            d2ir_root_url: Base URL for D2IR API
+            d2ir_key: API key for authentication
+            d2ir_secret: API secret for authentication
+            from_server_code: Source server code
+            to_server_code: Target server code
+            timeout: Timeout configuration. If None, uses environment variables or defaults.
+                    Can be float (total timeout), dict (granular timeouts),
+                    or httpx.Timeout object.
+        """
         # Determine timeout value to use
         if timeout is _TIMEOUT_UNSET:
             # User didn't specify timeout, use environment variables
@@ -76,36 +91,45 @@ class D2IRClient:
             timeout_value = httpx.Timeout(None)
         else:
             # User passed specific value (float, dict, or httpx.Timeout)
-            timeout_value = self._construct_timeout(cast(float | dict | httpx.Timeout, timeout))
+            timeout_value = self._construct_timeout(
+                cast(float | dict[str, float] | httpx.Timeout, timeout)
+            )
 
         self.d2ir_params = D2IRParameters(
-            d2ir_auth_url=d2ir_auth_url,
-            d2ir_root_url=ensure_trailing_slash(d2ir_root_url),
-            d2ir_key=d2ir_key,
-            d2ir_secret=d2ir_secret,
+            d2ir_auth_url=auth_url,
+            d2ir_root_url=ensure_trailing_slash(root_url),
+            d2ir_key=auth_key,
+            d2ir_secret=auth_secret,
             d2ir_from_code=from_server_code,
             d2ir_to_code=to_server_code,
             d2ir_timeout=timeout_value,
         )
-        self.d2ir_auth = D2IRAuth(self.d2ir_params)
+        self.login()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "D2IRClient":
         self.async_http_client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self.d2ir_params.d2ir_root_url, auth=self.d2ir_auth, timeout=None
         )
         return self
 
-    async def __aexit__(self, exc_type, exc_value, traceback):
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         await self.async_http_client.aclose()
 
-    def __enter__(self):
+    def __enter__(self) -> "D2IRClient":
         self.http_client: httpx.Client = httpx.Client(
             base_url=self.d2ir_params.d2ir_root_url, auth=self.d2ir_auth, timeout=None
         )
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         self.http_client.close()
+
+    def login(self):
+        if not hasattr(self, "d2ir_auth"):
+            self.d2ir_auth: D2IRAuth = D2IRAuth(self.d2ir_params)
+        else:
+            with self.d2ir_auth._lock:
+                self.d2ir_auth._token = self.d2ir_auth._do_sync_auth()
 
     @staticmethod
     def _construct_timeout_from_env() -> httpx.Timeout:
@@ -123,7 +147,7 @@ class D2IRClient:
         return httpx.Timeout(HTTPX_TIMEOUT, **default_timeout_config)
 
     @staticmethod
-    def _construct_timeout(timeout: float | dict | httpx.Timeout) -> httpx.Timeout:
+    def _construct_timeout(timeout: float | dict[str, float] | httpx.Timeout) -> httpx.Timeout:
         """Construct httpx.Timeout object from user-provided timeout parameter.
 
         If timeout is a dict, any unspecified values will be replaced by the environment
@@ -147,7 +171,7 @@ class D2IRClient:
             # Handle float/int timeout
             return httpx.Timeout(timeout)
 
-    async def d2ir_get_async(self, endpoint, params=None):
+    async def d2ir_get_async(self, endpoint: str, params: dict[str, str] | None = None) -> Any:
         response = await self.async_http_client.get(
             endpoint,
             params=params,
@@ -155,7 +179,7 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()
 
-    def d2ir_get(self, endpoint, params=None):
+    def d2ir_get(self, endpoint: str, params: dict[str, str] | None = None) -> Any:
         response = self.http_client.get(
             endpoint,
             params=params,
@@ -163,7 +187,12 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()
 
-    async def d2ir_post_async(self, endpoint, json=None, params=None):
+    async def d2ir_post_async(
+        self,
+        endpoint: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         response = await self.async_http_client.post(
             endpoint,
             json=json,
@@ -172,7 +201,12 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()
 
-    def d2ir_post(self, endpoint: str, json=None, params=None):
+    def d2ir_post(
+        self,
+        endpoint: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         response = self.http_client.post(
             endpoint,
             json=json,
@@ -181,7 +215,12 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()  # pragma: no cover
 
-    async def d2ir_put_async(self, endpoint, json=None, params=None):
+    async def d2ir_put_async(
+        self,
+        endpoint: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         response = await self.async_http_client.put(
             endpoint,
             json=json,
@@ -190,16 +229,21 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()
 
-    def d2ir_put(self, endpoint, json=None, params=None):
+    def d2ir_put(
+        self,
+        endpoint: str,
+        json: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         response = self.http_client.put(
             endpoint,
             json=json,
             params=params,
         )
         response.raise_for_status()
-        return response.json()
+        return response.json()  # pragma: no cover
 
-    async def d2ir_delete_async(self, endpoint, params=None):
+    async def d2ir_delete_async(self, endpoint: str, params: dict[str, str] | None = None) -> Any:
         response = await self.async_http_client.delete(
             endpoint,
             params=params,
@@ -207,7 +251,7 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()
 
-    def d2ir_delete(self, endpoint: str, params: dict | None = None):
+    def d2ir_delete(self, endpoint: str, params: dict[str, str] | None = None) -> Any:
         response = self.http_client.delete(
             endpoint,
             params=params,
@@ -215,10 +259,10 @@ class D2IRClient:
         response.raise_for_status()
         return response.json()
 
-    async def update_item_status_async(self, item_id, item_status_obj):
+    async def update_item_status_async(self, item_id: str, item_status_obj: dict[str, Any]) -> Any:
         endpoint = f"v2/contribution/itemstatus/{item_id}"
         try:
-            return await self.d2ir_post(endpoint, json=item_status_obj)
+            return await self.d2ir_post_async(endpoint, json=item_status_obj)
         except httpx.HTTPStatusError as e:
             logger.info(f"Error updating item status for {item_id}: {e.response.text}")
             raise e
@@ -226,7 +270,7 @@ class D2IRClient:
             logger.info(f"Unexpected error updating item status for {item_id}: {str(e)}")
             raise e
 
-    def update_item_status(self, item_id, item_status_obj):
+    def update_item_status(self, item_id: str, item_status_obj: dict[str, Any]) -> Any:
         endpoint = f"v2/contribution/itemstatus/{item_id}"
         try:
             return self.d2ir_post(endpoint, json=item_status_obj)
@@ -237,42 +281,46 @@ class D2IRClient:
             logger.info(f"Unexpected error updating item status for {item_id}: {str(e)}")
             raise e
 
-    async def decontribute_item_async(self, item_id):
+    async def decontribute_item_async(self, item_id: str) -> Any | None:
         endpoint = f"v2/contribution/item/{item_id}"
         try:
-            return await self.d2ir_delete(endpoint)
-        except httpx.HTTPStatusError as e:
+            return await self.d2ir_delete_async(endpoint)
+        except httpx.HTTPStatusError as e:  # pragma: no cover
             logger.info(f"Error decontributing item {item_id}: {e.response.text}")
+            return None
         except Exception as e:
             logger.info(f"Unexpected error decontributing item {item_id}: {str(e)}")
             raise e
 
-    def decontribute_item(self, item_id):
+    def decontribute_item(self, item_id: str) -> Any | None:
         endpoint = f"v2/contribution/item/{item_id}"
         try:
             return self.d2ir_delete(endpoint)
-        except httpx.HTTPStatusError as e:
+        except httpx.HTTPStatusError as e:  # pragma: no cover
             logger.info(f"Error decontributing item {item_id}: {e.response.text}")
+            return None
         except Exception as e:
             logger.info(f"Unexpected error decontributing item {item_id}: {str(e)}")
             raise e
 
-    async def decontribute_bib_async(self, bib_id):
+    async def decontribute_bib_async(self, bib_id: str) -> Any | None:
         endpoint = f"v2/contribution/bib/{bib_id}"
         try:
-            return await self.d2ir_delete(endpoint)
-        except httpx.HTTPStatusError as e:
+            return await self.d2ir_delete_async(endpoint)
+        except httpx.HTTPStatusError as e:  # pragma: no cover
             logger.info(f"Error decontributing bib {bib_id}: {e.response.text}")
+            return None
         except Exception as e:
             logger.info(f"Unexpected error decontributing bib {bib_id}: {str(e)}")
             raise e
 
-    def decontribute_bib(self, bib_id):
+    def decontribute_bib(self, bib_id: str) -> Any | None:
         endpoint = f"v2/contribution/bib/{bib_id}"
         try:
             return self.d2ir_delete(endpoint)
         except httpx.HTTPStatusError as e:
             logger.info(f"Error decontributing bib {bib_id}: {e.response.text}")
+            return None  # pragma: no cover
         except Exception as e:
             logger.info(f"Unexpected error decontributing bib {bib_id}: {str(e)}")
             raise e
