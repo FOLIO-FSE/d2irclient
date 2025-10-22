@@ -1,6 +1,6 @@
 [project]
 name = "d2irclient"
-version = "0.1.0"
+version = "0.1.1"
 description = "A python client for the Direct to INN-Reach (D2IR) API"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
