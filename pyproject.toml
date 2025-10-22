@@ -3,7 +3,7 @@ name = "d2irclient"
 version = "0.1.0"
 description = "A python client for the Direct to INN-Reach (D2IR) API"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "httpx>=0.28.1",
 ]
