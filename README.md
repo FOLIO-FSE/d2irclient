@@ -26,10 +26,10 @@ export D2IR_CENTRAL_SERVER_CODE='<central_server_code>'
 ```python
 from d2irclient.D2IRClient import D2IRClient
 dc = D2IRClient(
-    d2ir_auth_url=os.environ.get("D2IR_AUTH_URL"),
-    d2ir_root_url=os.environ.get("D2IR_ROOT_URL"),
-    d2ir_key=os.environ.get("D2IR_API_KEY"),
-    d2ir_secret=os.environ.get("D2IR_ROOT_URL"),
+    auth_url=os.environ.get("D2IR_AUTH_URL"),
+    root_url=os.environ.get("D2IR_ROOT_URL"),
+    auth_key=os.environ.get("D2IR_API_KEY"),
+    auth_secret=os.environ.get("D2IR_ROOT_URL"),
     from_server_code=os.environ.get("D2IR_LOCAL_SERVER_CODE"),
     to_server_code=os.environ.get("D2IR_CENTRAL_SERVER_CODE")
 )
